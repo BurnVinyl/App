@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Burn Music App</title>
+  <!-- Google Fonts for a modern look -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-3W4ZukWNXOWHI4VkFiVKgjZYuTbcPzMb2WhxvtJbXIiaPR+rt6RzCqER2UysTdM/0uKYlP6trvRhm84GKS4K4w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="style.css">
+  <script defer src="script.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Login / Welcome screen -->
+    <section id="login-screen" class="screen">
+      <div class="login-container">
+        <h1 class="app-title">Your playlist.<br>On vinyl.</h1>
+        <p class="tagline">Experience music in a whole new way.</p>
+        <div class="login-buttons">
+          <button class="btn spotify" id="login-spotify"><i class="fa-brands fa-spotify"></i> Sign in with Spotify</button>
+          <button class="btn apple" id="login-apple"><i class="fa-brands fa-apple"></i> Sign in with Apple Music</button>
+          <button class="btn default" id="login-guest">Continue as Guest</button>
+        </div>
+      </div>
+      <footer class="login-footer">Burn it.</footer>
+    </section>
+
+    <!-- Home screen -->
+    <section id="home-screen" class="screen hidden">
+      <header class="top-bar">
+        <input type="text" id="home-search" class="search-input" placeholder="Search songs, artists, playlists..." readonly>
+      </header>
+      <div class="content scroll">
+        <h2 class="section-title">Playlists by artists &amp; curators</h2>
+        <div id="artist-playlists" class="card-row"></div>
+        <h2 class="section-title">Burnt by your friends</h2>
+        <div id="friend-burns" class="card-row"></div>
+      </div>
+    </section>
+
+    <!-- Search screen (songs and albums) -->
+    <section id="search-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="home"><i class="fa-solid fa-arrow-left"></i></button>
+        <input type="text" id="search-input" class="search-input" placeholder="Search...">
+        <button class="cancel-btn" id="search-cancel">Cancel</button>
+      </header>
+      <div class="content scroll" id="search-content">
+        <!-- dynamic search results and categories will be injected here -->
+      </div>
+    </section>
+
+    <!-- Create Playlist screen -->
+    <section id="create-playlist-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="home"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Create a new playlist</h2>
+      </header>
+      <div class="content create-playlist-content">
+        <div class="cover-selector">
+          <div id="cover-preview" class="cover-preview"></div>
+          <button id="change-cover" class="btn small">Select cover</button>
+        </div>
+        <input type="text" id="playlist-name" class="playlist-name-input" placeholder="Playlist name">
+        <button id="create-playlist-btn" class="btn primary">Create Playlist</button>
+      </div>
+    </section>
+
+    <!-- Playlist Detail screen -->
+    <section id="playlist-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="home"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2 id="playlist-title">Playlist</h2>
+        <button class="options-btn" id="playlist-options"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+      </header>
+      <div class="playlist-header">
+        <div id="playlist-cover" class="playlist-cover"></div>
+        <div class="playlist-info">
+          <h3 id="playlist-name-display"></h3>
+          <p id="playlist-creator"></p>
+          <p id="playlist-songcount"></p>
+        </div>
+      </div>
+      <div class="content scroll" id="playlist-songs">
+        <!-- songs added to playlist will appear here -->
+      </div>
+      <div class="playlist-actions">
+        <button id="add-song-btn" class="btn secondary"><i class="fa-solid fa-plus"></i> Add songs</button>
+        <button id="burn-playlist-btn" class="btn primary"><i class="fa-solid fa-fire"></i> Burn it</button>
+      </div>
+    </section>
+
+    <!-- Burn overlay (tap to burn) -->
+    <section id="burn-overlay" class="screen hidden modal">
+      <div class="overlay-content">
+        <h2>Tap your phone on the vinyl to burn</h2>
+        <div class="vinyl"></div>
+        <button id="tap-burn-btn" class="btn primary large">Tap to burn</button>
+      </div>
+    </section>
+
+    <!-- Burn success page with options -->
+    <section id="burn-complete-screen" class="screen hidden modal">
+      <div class="overlay-content">
+        <h2 id="burn-complete-title">Burnt!</h2>
+        <div class="toggle-group">
+          <label class="toggle-label">
+            <span>Share with friends</span>
+            <input type="checkbox" id="toggle-share">
+            <span class="slider"></span>
+          </label>
+          <label class="toggle-label">
+            <span>Order artwork</span>
+            <input type="checkbox" id="toggle-artwork">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <button id="burn-complete-btn" class="btn primary">Complete</button>
+      </div>
+    </section>
+
+    <!-- Order Artwork screen -->
+    <section id="order-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="burn-complete"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Order Artwork</h2>
+      </header>
+      <div class="content scroll order-content">
+        <h3>Shipping Address</h3>
+        <input type="text" id="address-name" placeholder="Full Name" class="order-input">
+        <input type="text" id="address-street" placeholder="Street Address" class="order-input">
+        <input type="text" id="address-city" placeholder="City" class="order-input">
+        <input type="text" id="address-state" placeholder="State" class="order-input">
+        <input type="text" id="address-zip" placeholder="ZIP Code" class="order-input">
+        <button id="order-confirm-btn" class="btn primary">Pay to burn</button>
+      </div>
+    </section>
+
+    <!-- Library screen -->
+    <section id="library-screen" class="screen hidden">
+      <header class="top-bar">
+        <h2>Your Library</h2>
+      </header>
+      <div class="library-tabs">
+        <button id="library-tab-playlists" class="tab-button active">Your Playlists</button>
+        <button id="library-tab-burns" class="tab-button">Burn Collection</button>
+      </div>
+      <div class="content scroll" id="library-content">
+        <!-- dynamic library items -->
+      </div>
+    </section>
+
+    <!-- Feed / Social screen -->
+    <section id="feed-screen" class="screen hidden">
+      <header class="top-bar">
+        <h2>Feed</h2>
+      </header>
+      <div class="content scroll" id="feed-content">
+        <!-- friend activities will appear here -->
+      </div>
+    </section>
+
+    <!-- Store screen -->
+    <section id="store-screen" class="screen hidden">
+      <header class="top-bar">
+        <h2>Burn Essentials</h2>
+      </header>
+      <div class="content scroll" id="store-content">
+        <!-- store items will appear here -->
+      </div>
+      <div class="cart-bar" id="cart-bar">
+        <button id="open-cart" class="cart-btn"><i class="fa-solid fa-cart-shopping"></i> Cart (<span id="cart-count">0</span>)</button>
+      </div>
+    </section>
+
+    <!-- Cart screen -->
+    <section id="cart-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="store"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Your Cart</h2>
+      </header>
+      <div class="content scroll" id="cart-content">
+        <!-- cart items appear here -->
+      </div>
+      <button id="checkout-btn" class="btn primary cart-checkout">Checkout</button>
+    </section>
+
+    <!-- Friend Profile screen -->
+    <section id="friend-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="feed"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2 id="friend-name">Friend Name</h2>
+      </header>
+      <div class="content scroll friend-content" id="friend-content">
+        <!-- friend profile details and activity -->
+      </div>
+    </section>
+
+    <!-- Group Burn screen -->
+    <section id="group-burn-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="home"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Group Burn</h2>
+      </header>
+      <div class="content scroll group-burn-content">
+        <input type="text" id="friend-search" placeholder="Search friends" class="order-input">
+        <div id="friend-list" class="friend-list">
+          <!-- friend selection items -->
+        </div>
+        <button id="group-burn-btn" class="btn primary">Burn together</button>
+      </div>
+    </section>
+
+    <!-- Navigation bar (bottom) -->
+    <nav id="nav-bar" class="nav-bar hidden">
+      <button class="nav-item" data-target="home">
+        <i class="fa-solid fa-house"></i>
+        <span>Home</span>
+      </button>
+      <button class="nav-item" data-target="feed">
+        <i class="fa-solid fa-users"></i>
+        <span>Feed</span>
+      </button>
+      <button class="nav-item" data-target="library">
+        <i class="fa-solid fa-folder"></i>
+        <span>Library</span>
+      </button>
+      <button class="nav-item" data-target="store">
+        <i class="fa-solid fa-store"></i>
+        <span>Store</span>
+      </button>
+      <!-- Floating burn button -->
+      <button id="plus-btn" class="plus-btn"><i class="fa-solid fa-plus"></i> Burn it</button>
+    </nav>
+
+    <!-- Burn options modal (from plus button) -->
+    <section id="burn-options-modal" class="screen hidden modal">
+      <div class="overlay-content burn-options">
+        <h2>What would you like to burn?</h2>
+        <div class="option-grid">
+          <button class="option-btn" data-action="create-playlist"><i class="fa-solid fa-plus"></i> New playlist</button>
+          <button class="option-btn" data-action="burn-playlists"><i class="fa-solid fa-music"></i> Your playlists</button>
+          <button class="option-btn" data-action="burn-albums"><i class="fa-solid fa-compact-disc"></i> Artist albums</button>
+          <button class="option-btn" data-action="single-burn"><i class="fa-solid fa-headphones"></i> Single burn</button>
+          <button class="option-btn" data-action="group-burn"><i class="fa-solid fa-user-group"></i> Group burn</button>
+          <button id="close-burn-options" class="btn secondary">Cancel</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
