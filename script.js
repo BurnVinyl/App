@@ -18,7 +18,7 @@
 const SPOTIFY_CLIENT_ID = '81cff1fc219b442abfb47d9a3bba8960';
 //Added Spitfy client
 // Redirect URI should match the location where this page is served.
-const SPOTIFY_REDIRECT_URI = window.location.origin + window.location.pathname;
+const SPOTIFY_REDIRECT_URI = "https://burnvinyl.github.io/App/";
 const SPOTIFY_SCOPES = 'user-read-private user-read-email';
 
 const APPLE_DEVELOPER_TOKEN = 'YOUR_APPLE_DEVELOPER_TOKEN';
