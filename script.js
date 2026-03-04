@@ -603,10 +603,6 @@ async function generateCodeChallenge(codeVerifier) {
 }
 
 async function redirectToSpotify() {
-  if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID') {
-    alert('Spotify client ID not set. Edit script.js to add your client ID.');
-    return;
-  }
   const verifier = generateCodeVerifier(128);
   const challenge = await generateCodeChallenge(verifier);
   localStorage.setItem('spotify_verifier', verifier);
