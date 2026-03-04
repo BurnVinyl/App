@@ -3,13 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Burn Music App</title>
-  <!-- Google Fonts for a modern look -->
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <title>BurnVinyl</title>
+  <!-- Fonts from Google for a retro‑futuristic look -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <!-- Font Awesome for icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-3W4ZukWNXOWHI4VkFiVKgjZYuTbcPzMb2WhxvtJbXIiaPR+rt6RzCqER2UysTdM/0uKYlP6trvRhm84GKS4K4w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="style.css">
   <script defer src="script.js"></script>
+  <!-- Apple MusicKit SDK for Apple Music login -->
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js"></script>
 </head>
 <body>
   <div id="app">
@@ -21,7 +25,6 @@
         <div class="login-buttons">
           <button class="btn spotify" id="login-spotify"><i class="fa-brands fa-spotify"></i> Sign in with Spotify</button>
           <button class="btn apple" id="login-apple"><i class="fa-brands fa-apple"></i> Sign in with Apple Music</button>
-          <button class="btn default" id="login-guest">Continue as Guest</button>
         </div>
       </div>
       <footer class="login-footer">Burn it.</footer>
@@ -187,6 +190,24 @@
       <button id="checkout-btn" class="btn primary cart-checkout">Checkout</button>
     </section>
 
+    <!-- Checkout screen -->
+    <section id="checkout-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="cart"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Checkout</h2>
+      </header>
+      <div class="content scroll checkout-content">
+        <h3 style="margin-bottom: 12px;">Shipping Information</h3>
+        <input type="text" id="checkout-name" placeholder="Full Name" class="order-input">
+        <input type="email" id="checkout-email" placeholder="Email Address" class="order-input">
+        <input type="text" id="checkout-street" placeholder="Street Address" class="order-input">
+        <input type="text" id="checkout-city" placeholder="City" class="order-input">
+        <input type="text" id="checkout-state" placeholder="State" class="order-input">
+        <input type="text" id="checkout-zip" placeholder="ZIP Code" class="order-input">
+        <button id="checkout-submit" class="btn primary" style="margin-top: 20px;">Place Order</button>
+      </div>
+    </section>
+
     <!-- Friend Profile screen -->
     <section id="friend-screen" class="screen hidden">
       <header class="top-bar">
@@ -213,6 +234,66 @@
       </div>
     </section>
 
+    <!-- Device Setup screen -->
+    <section id="device-screen" class="screen hidden">
+      <header class="top-bar">
+        <button class="back-btn" data-back="home"><i class="fa-solid fa-arrow-left"></i></button>
+        <h2>Device Setup</h2>
+      </header>
+      <div class="content scroll device-content">
+        <!-- Bluetooth connection card -->
+        <div class="card">
+          <h2><span class="section-number">1</span> Bluetooth Connection</h2>
+          <div class="btn-row">
+            <button id="bleConnectBtn" class="btn-primary">Connect to Pi</button>
+            <button id="bleDisconnectBtn" class="btn-danger" disabled>Disconnect</button>
+          </div>
+          <div class="collapsible-header collapsed" id="bleAdvancedHeader">
+            <span style="color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Advanced Options</span>
+          </div>
+          <div class="collapsible-content collapsed" id="bleAdvancedContent">
+            <select id="bleMode">
+              <option value="uuid" selected>Filter by UART UUID</option>
+              <option value="name">Filter by Name (DVS)</option>
+            </select>
+            <div class="btn-row">
+              <button id="statusBtn" class="btn-secondary" disabled>Check Status</button>
+              <button id="startPollBtn" class="btn-secondary" disabled>Start Poll</button>
+              <button id="stopPollBtn" class="btn-secondary" disabled>Stop Poll</button>
+            </div>
+            <div class="log-container" id="bleLog"></div>
+          </div>
+        </div>
+        <!-- Wi-Fi setup card -->
+        <div class="card">
+          <h2><span class="section-number">2</span> Wi‑Fi Setup</h2>
+          <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">
+            Connect your Pi to Wi‑Fi for downloads. You can disable Wi‑Fi during playback.
+          </p>
+          <div class="btn-row">
+            <button id="wifiScanBtn" class="btn-secondary" disabled>Scan Networks</button>
+            <button id="wifiStatusBtn" class="btn-secondary" disabled>Check Status</button>
+            <button id="wifiOffBtn" class="btn-danger" disabled>Turn Off</button>
+          </div>
+          <select id="wifiSsid" disabled>
+            <option value="">(scan for networks first)</option>
+          </select>
+          <input id="wifiPass" type="password" placeholder="Wi‑Fi password (leave blank if open)" disabled />
+          <div class="btn-row">
+            <button id="wifiJoinBtn" class="btn-success" disabled>Connect to Network</button>
+          </div>
+          <div style="margin-top: 16px; padding: 12px; background: var(--bg-elevated); border-radius: 8px; font-size: 12px;">
+            <div style="color: var(--text-secondary);">
+              Status: <span id="wifiState" style="color: var(--accent-neon);">unknown</span>
+            </div>
+            <div style="color: var(--text-secondary); margin-top: 4px;">
+              IP: <span id="wifiIp" style="color: var(--accent-neon);">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Navigation bar (bottom) -->
     <nav id="nav-bar" class="nav-bar hidden">
       <button class="nav-item" data-target="home">
@@ -230,6 +311,10 @@
       <button class="nav-item" data-target="store">
         <i class="fa-solid fa-store"></i>
         <span>Store</span>
+      </button>
+      <button class="nav-item" data-target="device">
+        <i class="fa-solid fa-bluetooth-b"></i>
+        <span>Device</span>
       </button>
       <!-- Floating burn button -->
       <button id="plus-btn" class="plus-btn"><i class="fa-solid fa-plus"></i> Burn it</button>

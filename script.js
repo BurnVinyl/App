@@ -1,15 +1,27 @@
 /*
- * Burn Music App
+ * BurnVinyl App
  *
- * This script powers the single-page application that emulates
- * the design and interactions from the provided mockups. It creates
- * a simple state machine to manage navigation between views, stores
- * sample data for songs, playlists, friends and store items, and
- * implements the major flows: login, home feed, search, playlist
- * creation, burning, library management, social feed, store and
- * cart, friend profiles and group burn. The app is purely client
- * side and uses no external backend.
+ * This script powers the BurnVinyl single‑page application. It
+ * combines features from the provided mockups with additional
+ * functionality: authenticating with Spotify or Apple Music,
+ * searching and creating playlists, burning tracks to vinyl via
+ * Bluetooth, managing Wi‑Fi on a Raspberry Pi device, and
+ * shopping for burning essentials. The app manages state in
+ * memory and uses the Web Bluetooth API and MusicKit SDK. To
+ * enable Spotify or Apple functionality you must provide your
+ * own client credentials (see constants below).
  */
+
+// ===================== CONFIGURATION ===================== //
+// Replace these with your own credentials. Without valid
+// credentials the respective login flows will not work.
+const SPOTIFY_CLIENT_ID = 'YOUR_SPOTIFY_CLIENT_ID';
+// Redirect URI should match the location where this page is served.
+const SPOTIFY_REDIRECT_URI = window.location.origin + window.location.pathname;
+const SPOTIFY_SCOPES = 'user-read-private user-read-email';
+
+const APPLE_DEVELOPER_TOKEN = 'YOUR_APPLE_DEVELOPER_TOKEN';
+// ========================================================== //
 
 // Global application state
 const state = {
@@ -20,15 +32,17 @@ const state = {
   feedEvents: [],
   storeItems: [],
   cart: [],
-  currentPlaylist: null, // the playlist currently being viewed
-  addingToPlaylist: null, // playlist id for which we are adding songs
-  currentBurn: null, // id of playlist or song being burnt
+  currentPlaylist: null,
+  addingToPlaylist: null,
+  currentBurn: null,
+  spotify: null, // will hold {accessToken}
+  apple: null,   // will hold {userToken}
 };
 
 // Helper to generate unique IDs
 const generateId = () => '_' + Math.random().toString(36).substr(2, 9);
 
-// DOM references
+// =============== DOM REFERENCES =============== //
 const screens = {
   login: document.getElementById('login-screen'),
   home: document.getElementById('home-screen'),
@@ -44,27 +58,31 @@ const screens = {
   cart: document.getElementById('cart-screen'),
   friend: document.getElementById('friend-screen'),
   groupBurn: document.getElementById('group-burn-screen'),
+  device: document.getElementById('device-screen'),
   burnOptions: document.getElementById('burn-options-modal'),
+  checkout: document.getElementById('checkout-screen'),
 };
 
 const navBar = document.getElementById('nav-bar');
 const navItems = navBar.querySelectorAll('.nav-item');
 const plusBtn = document.getElementById('plus-btn');
 
-// Sections inside screens
+// Home
 const artistPlaylistsRow = document.getElementById('artist-playlists');
 const friendBurnsRow = document.getElementById('friend-burns');
-const searchInput = document.getElementById('search-input');
-const searchContent = document.getElementById('search-content');
 const homeSearch = document.getElementById('home-search');
 
-// Create Playlist elements
+// Search
+const searchInput = document.getElementById('search-input');
+const searchContent = document.getElementById('search-content');
+
+// Create playlist
 const coverPreview = document.getElementById('cover-preview');
 const changeCoverBtn = document.getElementById('change-cover');
 const playlistNameInput = document.getElementById('playlist-name');
 const createPlaylistBtn = document.getElementById('create-playlist-btn');
 
-// Playlist detail elements
+// Playlist
 const playlistTitle = document.getElementById('playlist-title');
 const playlistCover = document.getElementById('playlist-cover');
 const playlistNameDisplay = document.getElementById('playlist-name-display');
@@ -74,14 +92,14 @@ const playlistSongsList = document.getElementById('playlist-songs');
 const addSongBtn = document.getElementById('add-song-btn');
 const burnPlaylistBtn = document.getElementById('burn-playlist-btn');
 
-// Burn overlay and complete elements
+// Burn overlay & complete
 const tapBurnBtn = document.getElementById('tap-burn-btn');
 const burnCompleteTitle = document.getElementById('burn-complete-title');
 const toggleShare = document.getElementById('toggle-share');
 const toggleArtwork = document.getElementById('toggle-artwork');
 const burnCompleteBtn = document.getElementById('burn-complete-btn');
 
-// Order elements
+// Order
 const orderConfirmBtn = document.getElementById('order-confirm-btn');
 
 // Library
@@ -102,6 +120,15 @@ const openCartBtn = document.getElementById('open-cart');
 const cartContent = document.getElementById('cart-content');
 const checkoutBtn = document.getElementById('checkout-btn');
 
+// Checkout page inputs
+const checkoutNameInp = document.getElementById('checkout-name');
+const checkoutEmailInp = document.getElementById('checkout-email');
+const checkoutStreetInp = document.getElementById('checkout-street');
+const checkoutCityInp = document.getElementById('checkout-city');
+const checkoutStateInp = document.getElementById('checkout-state');
+const checkoutZipInp = document.getElementById('checkout-zip');
+const checkoutSubmitBtn = document.getElementById('checkout-submit');
+
 // Friend profile
 const friendNameHeader = document.getElementById('friend-name');
 const friendContent = document.getElementById('friend-content');
@@ -114,7 +141,27 @@ const groupBurnBtn = document.getElementById('group-burn-btn');
 // Burn options modal
 const burnOptionsModal = document.getElementById('burn-options-modal');
 
-// Utility to hide all screens and show nav
+// Device connectivity elements
+const bleConnectBtn = document.getElementById('bleConnectBtn');
+const bleDisconnectBtn = document.getElementById('bleDisconnectBtn');
+const bleModeSel = document.getElementById('bleMode');
+const statusBtn = document.getElementById('statusBtn');
+const startPollBtn = document.getElementById('startPollBtn');
+const stopPollBtn = document.getElementById('stopPollBtn');
+const bleLog = document.getElementById('bleLog');
+const bleAdvancedHeader = document.getElementById('bleAdvancedHeader');
+const bleAdvancedContent = document.getElementById('bleAdvancedContent');
+
+const wifiScanBtn = document.getElementById('wifiScanBtn');
+const wifiStatusBtn = document.getElementById('wifiStatusBtn');
+const wifiOffBtn = document.getElementById('wifiOffBtn');
+const wifiSsidSel = document.getElementById('wifiSsid');
+const wifiPassInp = document.getElementById('wifiPass');
+const wifiJoinBtn = document.getElementById('wifiJoinBtn');
+const wifiStateSpan = document.getElementById('wifiState');
+const wifiIpSpan = document.getElementById('wifiIp');
+
+// =============== NAVIGATION =============== //
 function showScreen(name) {
   Object.keys(screens).forEach(key => {
     screens[key].classList.add('hidden');
@@ -132,75 +179,18 @@ function showScreen(name) {
   plusBtn.style.display = showPlus ? 'flex' : 'none';
   screens[name].classList.remove('hidden');
   // Update nav active states
-  if (name === 'home' || name === 'feed' || name === 'library' || name === 'store') {
+  ['home','feed','library','store','device'].forEach(itemName => {
     navItems.forEach(item => {
       if (item.dataset.target === name) {
         item.classList.add('active');
-      } else {
+      } else if (item.dataset.target === itemName) {
         item.classList.remove('active');
       }
     });
-  }
+  });
 }
 
-// Initialize sample data for demonstration
-function initData() {
-  // Sample songs
-  state.songs = [
-    { id: generateId(), title: 'Midnight Groove', artist: 'DJ SOKY', duration: '3:24' },
-    { id: generateId(), title: 'Neon Lights', artist: 'DJ SOKY', duration: '4:10' },
-    { id: generateId(), title: 'Golden Hour', artist: 'Ari N', duration: '2:58' },
-    { id: generateId(), title: 'Disco Funk', artist: 'The Groovers', duration: '3:51' },
-    { id: generateId(), title: 'House Party', artist: 'Beat Makers', duration: '4:32' },
-    { id: generateId(), title: 'Jazz Fusion', artist: 'Sax & Co.', duration: '3:17' },
-    { id: generateId(), title: 'Lo-Fi Dreams', artist: 'Chillwave', duration: '2:45' },
-    { id: generateId(), title: 'Hip Hop Beats', artist: 'Rhythm Nation', duration: '3:03' },
-    { id: generateId(), title: 'Smooth Ride', artist: 'DJ SOKY', duration: '3:42' },
-    { id: generateId(), title: 'Sunset Vibes', artist: 'Ari N', duration: '4:05' },
-  ];
-  // Sample playlists (two from artists & curators)
-  state.playlists = [
-    {
-      id: generateId(),
-      name: 'Chill House',
-      creator: 'DJ SOKY',
-      cover: randomGradient(),
-      songs: [state.songs[0].id, state.songs[1].id, state.songs[4].id],
-      burntCount: 5,
-      isBurnt: false,
-      type: 'artist',
-    },
-    {
-      id: generateId(),
-      name: 'Jazz & Coffee',
-      creator: 'Curated',
-      cover: randomGradient(),
-      songs: [state.songs[2].id, state.songs[5].id, state.songs[6].id],
-      burntCount: 8,
-      isBurnt: true,
-      type: 'curator',
-    },
-  ];
-  // Sample friends
-  state.friends = [
-    { id: generateId(), name: 'Alex', avatar: null, burnt: [state.playlists[1].id], isFriend: true },
-    { id: generateId(), name: 'Sam', avatar: null, burnt: [], isFriend: true },
-    { id: generateId(), name: 'Jordan', avatar: null, burnt: [state.playlists[0].id], isFriend: true },
-  ];
-  // Generate sample feed events
-  state.feedEvents = [
-    { id: generateId(), user: state.friends[0].name, action: 'burnt', playlistId: state.playlists[1].id, timestamp: '2h' },
-    { id: generateId(), user: state.friends[2].name, action: 'burnt', playlistId: state.playlists[0].id, timestamp: '5h' },
-  ];
-  // Sample store items
-  state.storeItems = [
-    { id: generateId(), name: 'Burn Record', description: 'High-quality blank vinyl record to hold your burnt playlist.', price: 15 },
-    { id: generateId(), name: 'Burner', description: 'The hardware you need to burn your playlists onto vinyl.', price: 200 },
-    { id: generateId(), name: 'Artwork Print', description: 'Premium print of your playlist cover art.', price: 40 },
-  ];
-}
-
-// Generate a random gradient string for covers
+// =============== SAMPLE DATA =============== //
 function randomGradient() {
   const colors = ['#ff3b30', '#ff9500', '#ffcc00', '#4cd964', '#5ac8fa', '#0579ff', '#5856d6', '#ff2d55'];
   const c1 = colors[Math.floor(Math.random() * colors.length)];
@@ -211,24 +201,41 @@ function randomGradient() {
   return `linear-gradient(135deg, ${c1}, ${c2})`;
 }
 
-// Render home feed
+function initSampleData() {
+  // Sample songs used when no search results are yet available
+  state.songs = [
+    { id: generateId(), title: 'Midnight Groove', artist: 'DJ SOKY', duration: '3:24' },
+    { id: generateId(), title: 'Neon Lights', artist: 'DJ SOKY', duration: '4:10' },
+    { id: generateId(), title: 'Golden Hour', artist: 'Ari N', duration: '2:58' },
+  ];
+  state.playlists = [];
+  state.friends = [
+    { id: generateId(), name: 'Alex', avatar: null, burnt: [], isFriend: true },
+    { id: generateId(), name: 'Sam', avatar: null, burnt: [], isFriend: true },
+  ];
+  state.feedEvents = [];
+  state.storeItems = [
+    { id: generateId(), name: 'Burn Record', description: 'High‑quality blank vinyl record to hold your burnt playlist.', price: 15 },
+    { id: generateId(), name: 'Burner', description: 'The hardware you need to burn your playlists onto vinyl.', price: 200 },
+    { id: generateId(), name: 'Artwork Print', description: 'Premium print of your playlist cover art.', price: 40 },
+  ];
+}
+
+// =============== RENDER FUNCTIONS =============== //
 function renderHome() {
-  // Clear existing content
   artistPlaylistsRow.innerHTML = '';
   friendBurnsRow.innerHTML = '';
-  // Display playlists by artists/curators
-  const artistPlaylists = state.playlists.filter(p => p.type === 'artist' || p.type === 'curator');
-  artistPlaylists.forEach(pl => {
+  // Show playlists by artists and curators
+  const artists = state.playlists.filter(p => p.type === 'artist' || p.type === 'curator');
+  artists.forEach(pl => {
     const card = document.createElement('div');
     card.className = 'card';
     card.style.background = pl.cover;
     card.innerHTML = `<h3>${pl.name}</h3><p>by ${pl.creator}</p>`;
-    card.addEventListener('click', () => {
-      openPlaylist(pl.id);
-    });
+    card.addEventListener('click', () => openPlaylist(pl.id));
     artistPlaylistsRow.appendChild(card);
   });
-  // Friend burns section
+  // Friend burns
   state.feedEvents.forEach(event => {
     if (event.action === 'burnt') {
       const pl = state.playlists.find(p => p.id === event.playlistId);
@@ -237,120 +244,111 @@ function renderHome() {
         card.className = 'card';
         card.style.background = pl.cover;
         card.innerHTML = `<h3>${pl.name}</h3><p>${event.user} burnt</p>`;
-        card.addEventListener('click', () => {
-          openPlaylist(pl.id);
-        });
+        card.addEventListener('click', () => openPlaylist(pl.id));
         friendBurnsRow.appendChild(card);
       }
     }
   });
 }
 
-// Render search screen content
-function renderSearch(query = '') {
+// Render search content based on active provider
+async function renderSearch(query = '') {
   searchContent.innerHTML = '';
-  const title = document.createElement('h3');
-  if (query.trim() === '') {
-    title.textContent = 'Songs for you';
-    searchContent.appendChild(title);
-    const row = document.createElement('div');
-    row.className = 'card-row';
-    // Show first 5 songs as recommendations
-    state.songs.slice(0, 5).forEach(song => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.style.background = randomGradient();
-      card.innerHTML = `<h3>${song.title}</h3><p>${song.artist}</p>`;
-      const addBtn = document.createElement('div');
-      addBtn.className = 'add-icon';
-      addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-      addBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        addSongToCurrent(song.id);
-      });
-      card.appendChild(addBtn);
-      card.addEventListener('click', () => {
-        if (state.addingToPlaylist) {
-          addSongToCurrent(song.id);
-        } else {
-          state.currentBurn = { type: 'song', id: song.id };
-          showScreen('burnOverlay');
-        }
-      });
-      row.appendChild(card);
-    });
-    searchContent.appendChild(row);
-    // Popular songs section
-    const title2 = document.createElement('h3');
-    title2.textContent = 'Popular songs';
-    searchContent.appendChild(title2);
-    const row2 = document.createElement('div');
-    row2.className = 'card-row';
-    state.songs.slice(5).forEach(song => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.style.background = randomGradient();
-      card.innerHTML = `<h3>${song.title}</h3><p>${song.artist}</p>`;
-      const addBtn = document.createElement('div');
-      addBtn.className = 'add-icon';
-      addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-      addBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        addSongToCurrent(song.id);
-      });
-      card.appendChild(addBtn);
-      card.addEventListener('click', () => {
-        if (state.addingToPlaylist) {
-          addSongToCurrent(song.id);
-        } else {
-          state.currentBurn = { type: 'song', id: song.id };
-          showScreen('burnOverlay');
-        }
-      });
-      row2.appendChild(card);
-    });
-    searchContent.appendChild(row2);
+  if (!query.trim()) {
+    const hint = document.createElement('p');
+    hint.style.color = 'var(--text-secondary)';
+    hint.style.fontSize = '0.9rem';
+    hint.textContent = 'Enter a search term to find songs';
+    searchContent.appendChild(hint);
+    return;
+  }
+  const results = [];
+  // Determine provider
+  if (state.spotify && state.spotify.accessToken) {
+    // Search Spotify
+    try {
+      const data = await fetchSpotifySearch(query);
+      results.push(...data);
+    } catch (e) {
+      console.error(e);
+      const msg = document.createElement('p');
+      msg.textContent = 'Spotify search failed.';
+      msg.style.color = 'var(--danger)';
+      searchContent.appendChild(msg);
+      return;
+    }
+  } else if (state.apple && state.apple.userToken) {
+    try {
+      const data = await fetchAppleMusicSearch(query);
+      results.push(...data);
+    } catch (e) {
+      console.error(e);
+      const msg = document.createElement('p');
+      msg.textContent = 'Apple Music search failed.';
+      msg.style.color = 'var(--danger)';
+      searchContent.appendChild(msg);
+      return;
+    }
   } else {
-    title.textContent = `Results for "${query}"`;
-    searchContent.appendChild(title);
-    // Filter songs by query
-    const results = state.songs.filter(song => song.title.toLowerCase().includes(query.toLowerCase()) || song.artist.toLowerCase().includes(query.toLowerCase()));
-    if (results.length === 0) {
-      const p = document.createElement('p');
-      p.textContent = 'No results found.';
-      searchContent.appendChild(p);
-    } else {
-      results.forEach(song => {
-        const item = document.createElement('div');
-        item.className = 'card';
-        item.style.background = randomGradient();
-        item.innerHTML = `<h3>${song.title}</h3><p>${song.artist}</p>`;
-        const addBtn = document.createElement('div');
-        addBtn.className = 'add-icon';
-        addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-        addBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          addSongToCurrent(song.id);
-        });
-        item.appendChild(addBtn);
-        item.addEventListener('click', () => {
-          if (state.addingToPlaylist) {
-            addSongToCurrent(song.id);
-          } else {
-            state.currentBurn = { type: 'song', id: song.id };
-            showScreen('burnOverlay');
-          }
-        });
-        searchContent.appendChild(item);
+    // Fallback to sample songs
+    results.push(...state.songs);
+  }
+  if (results.length === 0) {
+    const msg = document.createElement('p');
+    msg.textContent = 'No results.';
+    msg.style.color = 'var(--text-secondary)';
+    searchContent.appendChild(msg);
+    return;
+  }
+  // Render each result as card and add to state songs if not already stored
+  results.forEach(song => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.background = randomGradient();
+    card.innerHTML = `<h3>${song.title || song.name}</h3><p>${song.artist || song.artistName}</p>`;
+    const addBtn = document.createElement('div');
+    addBtn.className = 'add-icon';
+    addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addSongToCurrent(song.id || song.trackId);
+    });
+    card.appendChild(addBtn);
+    card.addEventListener('click', () => {
+      if (state.addingToPlaylist) {
+        addSongToCurrent(song.id || song.trackId);
+      } else {
+        state.currentBurn = { type: 'song', id: song.id || song.trackId };
+        showScreen('burnOverlay');
+      }
+    });
+    searchContent.appendChild(card);
+
+    // Add song to global songs list if not present
+    const songId = song.id || song.trackId;
+    if (songId && !state.songs.some(s => s.id === songId)) {
+      const dur = (() => {
+        if (song.duration) return song.duration;
+        if (song.duration_ms) {
+          const totalMs = song.duration_ms;
+          const mins = Math.floor(totalMs / 60000);
+          const secs = Math.floor((totalMs % 60000) / 1000);
+          return `${mins}:${String(secs).padStart(2, '0')}`;
+        }
+        return '3:00';
+      })();
+      state.songs.push({
+        id: songId,
+        title: song.title || song.name,
+        artist: song.artist || song.artistName,
+        duration: dur,
       });
     }
-  }
+  });
 }
 
-// Add song to current playlist when addingToPlaylist is set
 function addSongToCurrent(songId) {
   if (!state.addingToPlaylist) {
-    // If not adding to a playlist, treat as single burn
     state.currentBurn = { type: 'song', id: songId };
     showScreen('burnOverlay');
     return;
@@ -359,18 +357,10 @@ function addSongToCurrent(songId) {
   if (playlist && !playlist.songs.includes(songId)) {
     playlist.songs.push(songId);
     renderPlaylist(playlist);
-    // show a quick toast-like notification
-    const toast = document.createElement('div');
-    toast.textContent = 'Added to playlist';
-    toast.className = 'toast';
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.remove();
-    }, 1500);
+    showToast('Added to playlist', 'success');
   }
 }
 
-// Render playlist detail screen
 function renderPlaylist(playlist) {
   state.currentPlaylist = playlist;
   playlistTitle.textContent = playlist.name;
@@ -378,7 +368,6 @@ function renderPlaylist(playlist) {
   playlistNameDisplay.textContent = playlist.name;
   playlistCreatorDisplay.textContent = `By ${playlist.creator}`;
   playlistSongCount.textContent = `${playlist.songs.length} song${playlist.songs.length !== 1 ? 's' : ''}`;
-  // render song list
   playlistSongsList.innerHTML = '';
   playlist.songs.forEach(songId => {
     const song = state.songs.find(s => s.id === songId);
@@ -395,7 +384,6 @@ function renderPlaylist(playlist) {
   });
 }
 
-// Navigate to playlist screen by id
 function openPlaylist(id) {
   const playlist = state.playlists.find(p => p.id === id);
   if (playlist) {
@@ -404,11 +392,9 @@ function openPlaylist(id) {
   }
 }
 
-// Render library screen
 function renderLibrary() {
   libraryContent.innerHTML = '';
   if (libraryTabPlaylists.classList.contains('active')) {
-    // Show user playlists
     state.playlists.forEach(pl => {
       const item = document.createElement('div');
       item.className = 'card';
@@ -419,17 +405,16 @@ function renderLibrary() {
       item.style.alignItems = 'center';
       item.style.justifyContent = 'space-between';
       item.style.padding = '0 16px';
-      item.style.marginBottom = '12px';
-      item.innerHTML = `<div><h3>${pl.name}</h3><p>${pl.songs.length} songs · Burnt ${pl.burntCount}</p></div><i class="fa-solid fa-chevron-right"></i>`;
+      item.innerHTML = `<div><h3>${pl.name}</h3><p>${pl.songs.length} songs · Burnt ${pl.burntCount || 0}</p></div><i class="fa-solid fa-chevron-right"></i>`;
       item.addEventListener('click', () => openPlaylist(pl.id));
       libraryContent.appendChild(item);
     });
   } else {
-    // Show burn collection (burnt playlists)
     const burnt = state.playlists.filter(pl => pl.isBurnt);
     if (burnt.length === 0) {
       const p = document.createElement('p');
       p.textContent = 'No burns yet. Burn a playlist to see it here.';
+      p.style.color = 'var(--text-secondary)';
       libraryContent.appendChild(p);
     } else {
       burnt.forEach(pl => {
@@ -442,7 +427,6 @@ function renderLibrary() {
         item.style.alignItems = 'center';
         item.style.justifyContent = 'space-between';
         item.style.padding = '0 16px';
-        item.style.marginBottom = '12px';
         item.innerHTML = `<div><h3>${pl.name}</h3><p>Burnt playlist</p></div><i class="fa-solid fa-fire"></i>`;
         item.addEventListener('click', () => openPlaylist(pl.id));
         libraryContent.appendChild(item);
@@ -451,7 +435,6 @@ function renderLibrary() {
   }
 }
 
-// Render feed events
 function renderFeed() {
   feedContent.innerHTML = '';
   state.feedEvents.forEach(event => {
@@ -462,10 +445,7 @@ function renderFeed() {
     card.style.width = '100%';
     card.style.height = 'auto';
     card.style.marginBottom = '12px';
-    let actionText = '';
-    if (event.action === 'burnt') actionText = 'burnt';
-    else if (event.action === 'shared') actionText = 'shared';
-    else actionText = event.action;
+    let actionText = event.action;
     card.innerHTML = `<h3>${event.user} ${actionText}</h3><p>${pl ? pl.name : ''} · ${event.timestamp}</p>`;
     card.addEventListener('click', () => {
       if (pl) openPlaylist(pl.id);
@@ -474,7 +454,6 @@ function renderFeed() {
   });
 }
 
-// Render store
 function renderStore() {
   storeContent.innerHTML = '';
   state.storeItems.forEach(item => {
@@ -501,24 +480,19 @@ function renderStore() {
 function addToCart(item) {
   state.cart.push(item);
   updateCartCount();
-  // show toast
-  const toast = document.createElement('div');
-  toast.textContent = `${item.name} added to cart`;
-  toast.className = 'toast';
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 1500);
+  showToast(`${item.name} added to cart`, 'success');
 }
 
 function updateCartCount() {
   cartCount.textContent = state.cart.length;
 }
 
-// Render cart page
 function renderCart() {
   cartContent.innerHTML = '';
   if (state.cart.length === 0) {
     const p = document.createElement('p');
     p.textContent = 'Your cart is empty.';
+    p.style.color = 'var(--text-secondary)';
     cartContent.appendChild(p);
     checkoutBtn.style.display = 'none';
   } else {
@@ -546,7 +520,6 @@ function renderCart() {
   }
 }
 
-// Render friend profile
 function renderFriend(friend) {
   friendNameHeader.textContent = friend.name;
   friendContent.innerHTML = '';
@@ -556,6 +529,7 @@ function renderFriend(friend) {
   if (friend.burnt.length === 0) {
     const p = document.createElement('p');
     p.textContent = 'No burns yet.';
+    p.style.color = 'var(--text-secondary)';
     friendContent.appendChild(p);
   } else {
     friend.burnt.forEach(pid => {
@@ -575,7 +549,6 @@ function renderFriend(friend) {
   }
 }
 
-// Render group burn list
 function renderGroupBurnList(query = '') {
   friendListContainer.innerHTML = '';
   const filtered = state.friends.filter(f => f.name.toLowerCase().includes(query.toLowerCase()));
@@ -607,30 +580,441 @@ function renderGroupBurnList(query = '') {
   });
 }
 
-// Event listeners for login
-function setupLogin() {
-  document.getElementById('login-spotify').addEventListener('click', () => {
-    login('Spotify User');
+// =============== AUTHENTICATION =============== //
+
+// Spotify PKCE helpers
+function generateCodeVerifier(length) {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+async function generateCodeChallenge(codeVerifier) {
+  const data = new TextEncoder().encode(codeVerifier);
+  const digest = await window.crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+async function redirectToSpotify() {
+  if (!SPOTIFY_CLIENT_ID || SPOTIFY_CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID') {
+    alert('Spotify client ID not set. Edit script.js to add your client ID.');
+    return;
+  }
+  const verifier = generateCodeVerifier(128);
+  const challenge = await generateCodeChallenge(verifier);
+  localStorage.setItem('spotify_verifier', verifier);
+  const params = new URLSearchParams();
+  params.append('client_id', SPOTIFY_CLIENT_ID);
+  params.append('response_type', 'code');
+  params.append('redirect_uri', SPOTIFY_REDIRECT_URI);
+  params.append('scope', SPOTIFY_SCOPES);
+  params.append('code_challenge_method', 'S256');
+  params.append('code_challenge', challenge);
+  // Indicate provider to handle in callback
+  params.append('state', 'spotify');
+  window.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
+}
+
+async function getSpotifyAccessToken(code) {
+  const verifier = localStorage.getItem('spotify_verifier');
+  const body = new URLSearchParams();
+  body.append('client_id', SPOTIFY_CLIENT_ID);
+  body.append('grant_type', 'authorization_code');
+  body.append('code', code);
+  body.append('redirect_uri', SPOTIFY_REDIRECT_URI);
+  body.append('code_verifier', verifier);
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
   });
-  document.getElementById('login-apple').addEventListener('click', () => {
-    login('Apple User');
+  const data = await res.json();
+  if (!res.ok) throw new Error(JSON.stringify(data));
+  return data.access_token;
+}
+
+async function fetchSpotifySearch(q) {
+  const token = state.spotify?.accessToken;
+  if (!token) return [];
+  const url = `https://api.spotify.com/v1/search?type=track&limit=20&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }
   });
-  document.getElementById('login-guest').addEventListener('click', () => {
-    login('Guest');
+  const data = await res.json();
+  if (!res.ok) throw new Error(JSON.stringify(data));
+  return data.tracks.items.map(item => ({
+    id: item.id,
+    title: item.name,
+    artist: item.artists.map(a => a.name).join(', '),
+    duration: `${Math.floor(item.duration_ms/60000)}:${String(Math.floor((item.duration_ms%60000)/1000)).padStart(2,'0')}`
+  }));
+}
+
+// Apple Music functions
+function configureMusicKit() {
+  if (!APPLE_DEVELOPER_TOKEN || APPLE_DEVELOPER_TOKEN === 'YOUR_APPLE_DEVELOPER_TOKEN') {
+    alert('Apple developer token not set. Edit script.js to add your token.');
+    return;
+  }
+  MusicKit.configure({
+    developerToken: APPLE_DEVELOPER_TOKEN,
+    app: { name: 'BurnVinyl', build: '1.0' },
   });
 }
 
-function login(name) {
-  state.user = { name, id: generateId() };
-  // After login, initialize data and show home
-  initData();
+async function authorizeApple() {
+  configureMusicKit();
+  const music = MusicKit.getInstance();
+  const token = await music.authorize();
+  state.apple = { userToken: token };
+  afterLogin();
+}
+
+async function fetchAppleMusicSearch(q) {
+  const music = MusicKit.getInstance();
+  if (!state.apple?.userToken) return [];
+  const data = await music.api.search(q, { types: ['songs'], limit: 20 });
+  return data.songs.data.map(item => ({
+    id: item.id,
+    title: item.attributes.name,
+    artist: item.attributes.artistName,
+    duration: item.attributes.durationInMillis ? `${Math.floor(item.attributes.durationInMillis/60000)}:${String(Math.floor((item.attributes.durationInMillis%60000)/1000)).padStart(2,'0')}` : '3:00'
+  }));
+}
+
+// Fetch Spotify user profile to personalize the app
+async function fetchSpotifyProfile() {
+  const token = state.spotify?.accessToken;
+  if (!token) return null;
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    console.error('Failed to fetch Spotify profile', e);
+    return null;
+  }
+}
+
+// Handle auth callback when page loads
+async function handleAuthCallback() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  const stateParam = urlParams.get('state');
+  if (code && stateParam === 'spotify') {
+    try {
+      const token = await getSpotifyAccessToken(code);
+      state.spotify = { accessToken: token };
+      // Remove code and state from URL
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      await afterLogin();
+    } catch (e) {
+      console.error(e);
+      alert('Spotify authentication failed');
+      showScreen('login');
+    }
+  }
+}
+
+async function afterLogin() {
+  // Personalize user after authentication
+  if (state.spotify && state.spotify.accessToken) {
+    const profile = await fetchSpotifyProfile();
+    if (profile) {
+      state.user = {
+        name: profile.display_name || profile.id || 'Spotify User',
+        email: profile.email || ''
+      };
+    } else {
+      state.user = { name: 'Spotify User' };
+    }
+  } else if (state.apple && state.apple.userToken) {
+    // Apple MusicKit does not expose user names via the client SDK.
+    state.user = { name: 'Apple Music User' };
+  } else {
+    state.user = { name: 'User' };
+  }
+  // Initialize sample data after login
+  initSampleData();
   renderHome();
   renderFeed();
   renderStore();
   showScreen('home');
 }
 
-// Setup navigation bar clicks
+// =============== TOAST UTILITY =============== //
+function showToast(msg, type = 'info') {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.className = `toast show ${type}`;
+  setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3000);
+}
+
+// =============== DEVICE CONNECTIVITY =============== //
+const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const UART_RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const UART_TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+const ble = {
+  device: null,
+  server: null,
+  svc: null,
+  rx: null,
+  tx: null,
+  connected: false,
+  notifyBuf: '',
+  pollTimer: null,
+  lastStatus: { ready: false, lock: false, posMs: 0, rate: 1.0 },
+};
+let wifiNets = [];
+
+function logBle(msg) {
+  if (!bleLog) return;
+  const entry = document.createElement('div');
+  entry.textContent = msg;
+  bleLog.insertBefore(entry, bleLog.firstChild);
+}
+
+function showDlUI(show) {
+  // Not implemented in this app
+}
+function setDlProgress() {
+  // Not implemented
+}
+
+function setBleUi(connected) {
+  bleConnectBtn.disabled = connected;
+  bleDisconnectBtn.disabled = !connected;
+  statusBtn.disabled = !connected;
+  startPollBtn.disabled = !connected;
+  stopPollBtn.disabled = !connected;
+  wifiScanBtn.disabled = !connected;
+  wifiStatusBtn.disabled = !connected;
+  wifiOffBtn.disabled = !connected;
+  wifiSsidSel.disabled = !connected;
+  wifiPassInp.disabled = !connected;
+  wifiJoinBtn.disabled = !connected;
+}
+
+function setVinylPill() {
+  // Not implemented; the provided UI has a pill element but not integrated here
+}
+
+function safeAlertBleError(e) {
+  console.error('BLE error:', e);
+  showToast(`BLE Error: ${e?.message || String(e)}`, 'error');
+}
+
+function onBleText(text) {
+  ble.notifyBuf += text;
+  let idx;
+  while ((idx = ble.notifyBuf.indexOf('\n')) >= 0) {
+    const line = ble.notifyBuf.slice(0, idx).trim();
+    ble.notifyBuf = ble.notifyBuf.slice(idx + 1);
+    if (!line) continue;
+    if (line.startsWith('WIFI_NET ')) {
+      const payload = line.slice(9);
+      const [ssid, sig] = payload.split('|');
+      const signal = parseInt(sig || '0', 10) || 0;
+      if (ssid && ssid.trim()) {
+        const s = ssid.trim();
+        const i = wifiNets.findIndex(x => x.ssid === s);
+        if (i >= 0) wifiNets[i].signal = Math.max(wifiNets[i].signal, signal);
+        else wifiNets.push({ ssid: s, signal });
+      }
+    } else if (line === 'WIFI_SCAN_DONE') {
+      wifiNets.sort((a, b) => b.signal - a.signal);
+      wifiRenderNets();
+      logBle('Wi‑Fi scan complete');
+      showToast(`Found ${wifiNets.length} networks`, 'success');
+    } else if (line.startsWith('WIFI_STATE ')) {
+      wifiSetState(line.slice(11).trim(), wifiIpSpan.textContent === '-' ? '' : wifiIpSpan.textContent);
+    } else if (line.startsWith('WIFI_IP ')) {
+      wifiSetState(wifiStateSpan.textContent, line.slice(8).trim());
+    } else if (line.startsWith('WIFI_ERR ')) {
+      showToast('Wi‑Fi error: ' + line.slice(9), 'error');
+    }
+    logBle(line);
+  }
+}
+
+async function bleWriteLine(line) {
+  if (!ble.connected || !ble.rx) throw new Error('Not connected');
+  if (!line.endsWith('\n')) line += '\n';
+  const data = new TextEncoder().encode(line);
+  if (ble.rx.writeValue) await ble.rx.writeValue(data);
+  else await ble.rx.writeValueWithoutResponse(data);
+}
+
+function stopPoll() {
+  if (ble.pollTimer) clearInterval(ble.pollTimer);
+  ble.pollTimer = null;
+}
+
+function cleanupBleState() {
+  stopPoll();
+  ble.connected = false;
+  ble.server = null;
+  ble.svc = null;
+  ble.rx = null;
+  ble.tx = null;
+  setBleUi(false);
+  wifiRenderNets();
+  wifiSetState('unknown', '-');
+}
+
+async function bleConnect() {
+  if (!window.isSecureContext) return showToast('Must be HTTPS', 'error');
+  if (!navigator.bluetooth) return showToast('WebBluetooth not available', 'error');
+  bleConnectBtn.disabled = true;
+  try {
+    logBle('Requesting device...');
+    showToast('Opening Bluetooth picker...', 'info');
+    const mode = bleModeSel.value;
+    if (mode === 'name') {
+      ble.device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'DVS' }],
+        optionalServices: [UART_SERVICE_UUID],
+      });
+    } else {
+      ble.device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [UART_SERVICE_UUID] }],
+        optionalServices: [UART_SERVICE_UUID],
+      });
+    }
+    ble.device.addEventListener('gattserverdisconnected', () => {
+      logBle('GATT disconnected');
+      showToast('Bluetooth disconnected', 'error');
+      cleanupBleState();
+    });
+    logBle('Connecting to GATT...');
+    ble.server = await ble.device.gatt.connect();
+    logBle('Getting UART service...');
+    ble.svc = await ble.server.getPrimaryService(UART_SERVICE_UUID);
+    logBle('Getting characteristics...');
+    ble.rx = await ble.svc.getCharacteristic(UART_RX_UUID);
+    ble.tx = await ble.svc.getCharacteristic(UART_TX_UUID);
+    logBle('Enabling notifications...');
+    await ble.tx.startNotifications();
+    ble.tx.addEventListener('characteristicvaluechanged', (ev) => {
+      const v = ev.target.value;
+      const bytes = new Uint8Array(v.buffer);
+      onBleText(new TextDecoder().decode(bytes));
+    });
+    ble.connected = true;
+    setBleUi(true);
+    logBle('✅ BLE connected');
+    showToast('Connected to Pi!', 'success');
+  } catch (e) {
+    safeAlertBleError(e);
+  } finally {
+    bleConnectBtn.disabled = ble.connected;
+  }
+}
+
+async function bleDisconnect() {
+  try {
+    stopPoll();
+    if (ble.device?.gatt?.connected) ble.device.gatt.disconnect();
+  } catch {}
+  cleanupBleState();
+  logBle('BLE disconnected');
+  showToast('Disconnected', 'info');
+}
+
+// Wi‑Fi helpers
+function wifiRenderNets() {
+  wifiSsidSel.innerHTML = '';
+  if (!wifiNets.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(no networks — tap Scan)';
+    wifiSsidSel.appendChild(opt);
+    return;
+  }
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = '(choose a network)';
+  wifiSsidSel.appendChild(opt0);
+  wifiNets.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n.ssid;
+    opt.textContent = `${n.ssid} (${n.signal}%)`;
+    wifiSsidSel.appendChild(opt);
+  });
+}
+
+function wifiSetState(state, ip = '') {
+  wifiStateSpan.textContent = state || 'unknown';
+  wifiIpSpan.textContent = ip || '-';
+}
+
+async function wifiScan() {
+  if (!ble.connected) return showToast('Connect to Pi first', 'error');
+  wifiNets = [];
+  wifiRenderNets();
+  wifiSetState('scanning', '');
+  await bleWriteLine('WIFI_SCAN');
+  showToast('Scanning for networks...', 'info');
+}
+
+async function wifiJoin() {
+  if (!ble.connected) return showToast('Connect to Pi first', 'error');
+  const ssid = wifiSsidSel.value;
+  const pwd = wifiPassInp.value;
+  if (!ssid) return showToast('Choose a network first', 'error');
+  wifiSetState('connecting', '');
+  await bleWriteLine(`WIFI_JOIN ${ssid}|${pwd}`);
+  showToast(`Connecting to ${ssid}...`, 'info');
+}
+
+async function wifiStatus() {
+  if (!ble.connected) return showToast('Connect to Pi first', 'error');
+  await bleWriteLine('WIFI_STATUS');
+}
+
+async function wifiOff() {
+  if (!ble.connected) return showToast('Connect to Pi first', 'error');
+  await bleWriteLine('WIFI_OFF');
+  showToast('Turning Wi‑Fi off...', 'info');
+}
+
+// Toggle collapsible content
+function setupCollapsibles() {
+  bleAdvancedHeader.addEventListener('click', () => {
+    bleAdvancedHeader.classList.toggle('collapsed');
+    bleAdvancedContent.classList.toggle('collapsed');
+  });
+}
+
+// =============== EVENT SETUP =============== //
+function setupLogin() {
+  document.getElementById('login-spotify').addEventListener('click', () => {
+    redirectToSpotify();
+  });
+  document.getElementById('login-apple').addEventListener('click', () => {
+    authorizeApple();
+  });
+}
+
 function setupNavBar() {
   navItems.forEach(item => {
     item.addEventListener('click', () => {
@@ -649,17 +1033,17 @@ function setupNavBar() {
       } else if (target === 'store') {
         renderStore();
         showScreen('store');
+      } else if (target === 'device') {
+        showScreen('device');
       }
     });
   });
   plusBtn.addEventListener('click', () => {
-    // Show burn options modal
     burnOptionsModal.classList.remove('hidden');
     navBar.classList.add('hidden');
   });
 }
 
-// Setup burn options modal
 function setupBurnOptions() {
   const optionButtons = burnOptionsModal.querySelectorAll('.option-btn');
   optionButtons.forEach(btn => {
@@ -668,29 +1052,23 @@ function setupBurnOptions() {
       burnOptionsModal.classList.add('hidden');
       navBar.classList.remove('hidden');
       if (action === 'create-playlist') {
-        // Navigate to create playlist
         state.addingToPlaylist = null;
-        // Reset cover preview
         coverPreview.style.background = randomGradient();
         playlistNameInput.value = '';
         showScreen('createPlaylist');
       } else if (action === 'burn-playlists') {
-        // go to library and prepare to burn existing playlist
         libraryTabPlaylists.classList.add('active');
         libraryTabBurns.classList.remove('active');
         renderLibrary();
         showScreen('library');
       } else if (action === 'burn-albums') {
-        // Not implemented: show alert
-        alert('Artist album burn flow is not implemented in this demo.');
+        alert('Artist album burn flow is not implemented.');
       } else if (action === 'single-burn') {
-        // Navigate to search page with no playlist context
         state.addingToPlaylist = null;
         searchInput.value = '';
         renderSearch();
         showScreen('search');
       } else if (action === 'group-burn') {
-        // Navigate to group burn page
         friendSearchInput.value = '';
         state.friends.forEach(f => f.selected = false);
         renderGroupBurnList();
@@ -698,16 +1076,13 @@ function setupBurnOptions() {
       }
     });
   });
-  // Close burn options
   document.getElementById('close-burn-options').addEventListener('click', () => {
     burnOptionsModal.classList.add('hidden');
     navBar.classList.remove('hidden');
   });
 }
 
-// Setup search page events
 function setupSearchPage() {
-  // Cancel button returns to home or playlist add context
   document.getElementById('search-cancel').addEventListener('click', () => {
     if (state.addingToPlaylist) {
       showScreen('playlist');
@@ -716,12 +1091,9 @@ function setupSearchPage() {
     }
   });
   searchInput.addEventListener('input', () => {
-    const q = searchInput.value;
-    renderSearch(q);
+    renderSearch(searchInput.value);
   });
-  // Make home search clickable to open search screen
   homeSearch.addEventListener('click', () => {
-    // Without query, search page shows categories
     state.addingToPlaylist = null;
     searchInput.value = '';
     renderSearch();
@@ -729,7 +1101,6 @@ function setupSearchPage() {
   });
 }
 
-// Setup create playlist page
 function setupCreatePlaylist() {
   changeCoverBtn.addEventListener('click', () => {
     coverPreview.style.background = randomGradient();
@@ -743,7 +1114,7 @@ function setupCreatePlaylist() {
     const newPlaylist = {
       id: generateId(),
       name,
-      creator: state.user.name,
+      creator: state.user?.name || 'You',
       cover: coverPreview.style.background || randomGradient(),
       songs: [],
       burntCount: 0,
@@ -755,32 +1126,26 @@ function setupCreatePlaylist() {
   });
 }
 
-// Setup playlist page events
 function setupPlaylistPage() {
   addSongBtn.addEventListener('click', () => {
-    // Set addingToPlaylist to current playlist
     state.addingToPlaylist = state.currentPlaylist.id;
     searchInput.value = '';
     renderSearch();
     showScreen('search');
   });
   burnPlaylistBtn.addEventListener('click', () => {
-    // Start burn overlay
     state.currentBurn = { type: 'playlist', id: state.currentPlaylist.id };
     showScreen('burnOverlay');
   });
 }
 
-// Setup burn overlay and complete events
 function setupBurnFlow() {
   tapBurnBtn.addEventListener('click', () => {
-    // After tapping, show burn complete options
     if (state.currentBurn) {
-      // For playlist, mark burnt count and isBurnt
       if (state.currentBurn.type === 'playlist') {
         const pl = state.playlists.find(p => p.id === state.currentBurn.id);
         if (pl) {
-          pl.burntCount += 1;
+          pl.burntCount = (pl.burntCount || 0) + 1;
           pl.isBurnt = true;
         }
       }
@@ -791,38 +1156,23 @@ function setupBurnFlow() {
     showScreen('burnComplete');
   });
   burnCompleteBtn.addEventListener('click', () => {
-    // If share toggle is on, add to feed
     if (toggleShare.checked && state.currentBurn) {
-      let plName = '';
-      if (state.currentBurn.type === 'playlist') {
-        const pl = state.playlists.find(p => p.id === state.currentBurn.id);
-        if (pl) plName = pl.name;
-      } else {
-        const song = state.songs.find(s => s.id === state.currentBurn.id);
-        if (song) plName = song.title;
-      }
-      state.feedEvents.unshift({ id: generateId(), user: state.user.name, action: 'burnt', playlistId: state.currentBurn.id, timestamp: 'just now' });
+      state.feedEvents.unshift({ id: generateId(), user: state.user?.name || 'You', action: 'burnt', playlistId: state.currentBurn.id, timestamp: 'just now' });
     }
-    // If artwork order toggle is on, navigate to order page
     if (toggleArtwork.checked) {
-      // show order page
       showScreen('order');
     } else {
-      // return to home
       renderHome();
       showScreen('home');
     }
   });
-  // Order confirmation
   orderConfirmBtn.addEventListener('click', () => {
-    // Save order (here we just show a message)
     alert('Thank you! Your artwork order has been placed.');
     renderHome();
     showScreen('home');
   });
 }
 
-// Setup library tabs
 function setupLibrary() {
   libraryTabPlaylists.addEventListener('click', () => {
     libraryTabPlaylists.classList.add('active');
@@ -836,27 +1186,69 @@ function setupLibrary() {
   });
 }
 
-// Setup cart open and checkout
 function setupCart() {
   openCartBtn.addEventListener('click', () => {
     renderCart();
     showScreen('cart');
   });
   checkoutBtn.addEventListener('click', () => {
-    alert('Purchase complete!');
-    state.cart = [];
-    renderCart();
-    updateCartCount();
-    showScreen('store');
+    // Show checkout screen and clear previous input
+    checkoutNameInp.value = '';
+    checkoutEmailInp.value = '';
+    checkoutStreetInp.value = '';
+    checkoutCityInp.value = '';
+    checkoutStateInp.value = '';
+    checkoutZipInp.value = '';
+    showScreen('checkout');
   });
 }
 
-// Setup friend feed clicks to open friend profile
+// Setup checkout submission
+function setupCheckout() {
+  if (!checkoutSubmitBtn) return;
+  checkoutSubmitBtn.addEventListener('click', () => {
+    const name = checkoutNameInp.value.trim();
+    const email = checkoutEmailInp.value.trim();
+    const street = checkoutStreetInp.value.trim();
+    const city = checkoutCityInp.value.trim();
+    const stateVal = checkoutStateInp.value.trim();
+    const zip = checkoutZipInp.value.trim();
+    if (!name || !email || !street || !city || !stateVal || !zip) {
+      showToast('Please fill out all fields', 'error');
+      return;
+    }
+    // Validate email basic pattern
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showToast('Enter a valid email', 'error');
+      return;
+    }
+    const total = state.cart.reduce((sum, item) => sum + item.price, 0);
+    // Build order summary (no payment processing)
+    const order = {
+      id: generateId(),
+      items: [...state.cart],
+      total,
+      shipping: { name, email, street, city, state: stateVal, zip },
+      date: new Date().toISOString(),
+    };
+    // Save orders array in state (for demonstration)
+    state.orders = state.orders || [];
+    state.orders.push(order);
+    // Clear cart
+    state.cart = [];
+    renderCart();
+    updateCartCount();
+    showToast('Order placed successfully!', 'success');
+    // Return to store or home
+    renderHome();
+    showScreen('home');
+  });
+}
+
 function setupFeedInteractions() {
   feedContent.addEventListener('click', (e) => {
     const card = e.target.closest('.card');
     if (!card) return;
-    // Determine friend based on event user
     const title = card.querySelector('h3');
     if (!title) return;
     const [userName] = title.textContent.split(' ');
@@ -868,27 +1260,46 @@ function setupFeedInteractions() {
   });
 }
 
-// Setup group burn interactions
 function setupGroupBurn() {
   friendSearchInput.addEventListener('input', () => {
     renderGroupBurnList(friendSearchInput.value);
   });
   groupBurnBtn.addEventListener('click', () => {
-    // Determine selected friends
     const selected = state.friends.filter(f => f.selected);
     if (selected.length === 0) {
       alert('Select at least one friend.');
       return;
     }
-    // Add event to feed: group burn
-    state.feedEvents.unshift({ id: generateId(), user: state.user.name, action: 'burnt', playlistId: null, timestamp: 'just now', group: selected.map(f => f.name) });
+    state.feedEvents.unshift({ id: generateId(), user: state.user?.name || 'You', action: 'burnt', playlistId: null, timestamp: 'just now', group: selected.map(f => f.name) });
     alert('Group burn complete!');
     renderFeed();
     showScreen('feed');
   });
 }
 
-// Setup global back buttons (data-back attributes)
+function setupDevice() {
+  if (!bleConnectBtn) return;
+  bleConnectBtn.addEventListener('click', () => bleConnect());
+  bleDisconnectBtn.addEventListener('click', () => bleDisconnect());
+  statusBtn.addEventListener('click', () => bleWriteLine('STATUS').catch(() => {}));
+  startPollBtn.addEventListener('click', () => {
+    stopPoll();
+    ble.pollTimer = setInterval(() => {
+      if (ble.connected) bleWriteLine('STATUS').catch(() => {});
+    }, 300);
+    logBle('Polling status...');
+  });
+  stopPollBtn.addEventListener('click', () => {
+    stopPoll();
+    logBle('Stopped polling');
+  });
+  wifiScanBtn.addEventListener('click', () => wifiScan());
+  wifiJoinBtn.addEventListener('click', () => wifiJoin());
+  wifiStatusBtn.addEventListener('click', () => wifiStatus());
+  wifiOffBtn.addEventListener('click', () => wifiOff());
+  setupCollapsibles();
+}
+
 function setupBackButtons() {
   document.querySelectorAll('.back-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -907,8 +1318,9 @@ function setupBackButtons() {
         showScreen('store');
       } else if (back === 'burn-complete') {
         showScreen('burnComplete');
+      } else if (back === 'device') {
+        showScreen('device');
       } else {
-        // fallback to home
         renderHome();
         showScreen('home');
       }
@@ -916,7 +1328,7 @@ function setupBackButtons() {
   });
 }
 
-// Initialize application
+// =============== INIT =============== //
 function init() {
   setupLogin();
   setupNavBar();
@@ -927,12 +1339,14 @@ function init() {
   setupBurnFlow();
   setupLibrary();
   setupCart();
+  setupCheckout();
   setupFeedInteractions();
   setupGroupBurn();
+  setupDevice();
   setupBackButtons();
-  // Initially show login screen
+  handleAuthCallback();
+  // Show login screen initially
   showScreen('login');
 }
 
-// Wait for DOM
 document.addEventListener('DOMContentLoaded', init);
